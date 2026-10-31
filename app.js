@@ -113,30 +113,95 @@ function agentCards(){
   return [scan, anal, exe, risk];
 }
 
-/* ---------- activity ---------- */
-function actRow(a, isNew){
-  const kind = a.kind, badge = kind==='buy'?`<div class="badge buy">${ICON.up}</div>`:kind==='stop'?`<div class="badge stop">${ICON.minus}</div>`:`<div class="badge sell">${ICON.cyc}</div>`;
-  const verb = kind==='buy'?'Bought':kind==='stop'?'Stopped':'Sold';
-  const mod = kind==='buy' ? 'Executor' : 'Risk' + (a.reason?' · '+esc(a.reason):'');
-  let amt, sub;
-  if (kind==='buy'){ amt = `<div class="r-a">${a.usd!=null?money(a.usd):sol(a.sol)}</div>`; sub = a.stack_pct!=null? a.stack_pct.toLocaleString('fr-FR',{maximumFractionDigits:1})+' % du stack':''; }
-  else { const up = (a.pnl ?? a.pct ?? 0) >= 0; amt = `<div class="r-a ${up?'up':'down'}">${a.pnl!=null?money(a.pnl,true):pct(a.pct)}</div>`; sub = a.pnl!=null? pct(a.pct):''; }
-  const img = S.tokens?.[a.mint]?.image;
-  return `<div class="row${isNew?' new':''}" data-mint="${esc(a.mint)}"><div class="r-ic">${av(a.symbol,img)}${badge}</div><div class="r-mid"><div class="r-t">${verb} ${esc(a.symbol)}</div><div class="r-s">${mod} · ${hm(a.ts)}</div></div><div class="r-right">${amt}<div class="r-p">${sub}</div></div></div>`;
+/* ---------- trades: one row per position (buy + sell grouped) ---------- */
+// exit reasons emitted by bot.py (request_exit / request_partial_exit) -> plain French
+const REASON_FR = {
+  stop_loss:'Stop loss touché', trailing_stop:'Stop suiveur déclenché', take_profit_cap:'Objectif de gain atteint', max_hold:'Durée max atteinte',
+  stale_no_trades:'Plus aucune transaction sur le token', migrated:'Token migré (fin de la courbe pump.fun)',
+  rug_shield_whale_dump:'Sortie anti-rug (gros vendeur)', rug_shield_dev_sell:'Sortie anti-rug (le dev vend)',
+  rug_shield_bundle_sell:'Sortie anti-rug (un bundle vend)', rug_shield_dev_new_launch:'Sortie anti-rug (le dev lance un autre token)',
+  rugger_dump_trigger:'Rugger : vente sur gros achat', rugger_hard_stop:'Rugger : stop loss touché', rugger_tp_100:'Rugger : objectif +100 % atteint',
+  rugger_trail_after_tp:'Rugger : stop suiveur après objectif', rugger_max_hold:'Rugger : durée max atteinte', rugger_stale_no_trades:'Rugger : plus aucune transaction',
+  copy_leader_sell:'Copie : le leader a vendu', copy_multi_leader_sell:'Copie : plusieurs leaders ont vendu', copy_leader_partial_sell:'Copie : le leader a vendu une partie',
+  copy_hard_stop:'Copie : stop loss touché', copy_max_hold:'Copie : durée max atteinte', copy_stale_no_trades:'Copie : plus aucune transaction',
+  // labels already translated by older snapshots
+  'Stopped':'Stop loss touché', 'Trailed out':'Stop suiveur déclenché', 'Take profit':'Objectif de gain atteint', 'Max hold':'Durée max atteinte', 'Sans trades':'Plus aucune transaction sur le token', 'Migré':'Token migré (fin de la courbe pump.fun)',
+};
+function reasonFr(r){ if (!r) return ''; return REASON_FR[r] || String(r).replace(/_/g,' '); }
+function dur(s){ if (s==null||isNaN(s)) return '—'; s=Math.max(0,s);
+  if (s<60) return (s<10 ? s.toLocaleString('fr-FR',{maximumFractionDigits:1}) : Math.round(s))+' s';
+  if (s<3600){ const m=Math.floor(s/60), r=Math.floor(s%60); return m+' min'+(r?' '+String(r).padStart(2,'0')+' s':''); }
+  const h=Math.floor(s/3600), m=Math.floor(s%3600/60); return h+' h '+String(m).padStart(2,'0'); }
+const nowS = () => Math.max(Date.now()/1000, S?.server_time||0);
+function modeChip(t){ const md = t.md||'normal'; return `<span class="mode ${esc(md)}">${md==='copy' ? 'copy'+(t.ld?' · '+esc(t.ld):'') : esc(md)}</span>`; }
+function stBadge(t){
+  const b = t.st==='open' ? (t.x ? '<span class="st exit">SORTIE…</span>' : '<span class="st open"><i></i>EN COURS</span>')
+          : t.st==='closed' ? '<span class="st closed">FERMÉE</span>' : '<span class="st unk">INCONNUE</span>';
+  return b + (t.pt?.length ? '<span class="st part">PARTIELLE</span>' : ''); }
+// older relay snapshots have no `trades`: rebuild them from the buy (o:Pxxxxx) / sell (c:Pxxxxx) activity rows
+function deriveTrades(){
+  const G = new Map(), openM = new Set((S.positions||[]).map(p=>p.mint));
+  for (const a of [...(S.activity||[])].sort((x,y)=>(x.ts||0)-(y.ts||0))){
+    const m = /^([oc]):(.+)$/.exec(a.id||''); const id = m ? m[2] : a.id;
+    let g = G.get(id); if (!g){ g = {id, s:a.symbol, m:a.mint, md:'normal', st:'unknown'}; G.set(id, g); }
+    if (a.kind==='buy'){ g.o=a.ts; g.sz=a.usd; if (g.st==='unknown') g.st='buy'; }
+    else Object.assign(g, {st:'closed', c:a.ts, pnl:a.pnl, pct:a.pct, r:a.reason, h: g.o ? a.ts-g.o : null});
+  }
+  for (const g of G.values()) if (g.st==='buy') g.st = openM.has(g.m) ? 'open' : 'unknown';
+  for (const p of S.positions||[]){ let g = [...G.values()].find(x=>x.m===p.mint && x.st==='open');
+    if (!g){ g = {id:'pos:'+p.mint, s:p.symbol, m:p.mint, md:'normal', st:'open', o:p.entry_ts, sz:p.usd}; G.set(g.id, g); }
+    Object.assign(g, {upnl:p.upnl, upct:p.pct, v:p.value}); }
+  return [...G.values()];
 }
+function sortTrades(T){ return T.sort((a,b)=> (b.st==='open')-(a.st==='open') || ((b.st==='open'?b.o:(b.c||b.o))||0) - ((a.st==='open'?a.o:(a.c||a.o))||0)); }
+function getTrades(){
+  const T = Array.isArray(S.trades) ? S.trades.map(t=>({...t})) : deriveTrades();
+  const buys = new Map((S.activity||[]).filter(a=>a.kind==='buy').map(a=>[String(a.id).replace(/^o:/,''), a]));
+  for (const t of T){ const b = buys.get(t.id); if (b && b.stack_pct!=null) t.stack = b.stack_pct; }
+  return sortTrades(T);
+}
+const sign = v => (v??0)>=0 ? 'up' : 'down';
+function tradeRow(t, isNew){
+  const open = t.st==='open', img = S.tokens?.[t.m]?.image;
+  const badge = open ? `<div class="badge buy">${ICON.up}</div>` : t.st==='closed' ? ((t.pnl??t.pct??0)>=0 ? `<div class="badge sell">${ICON.cyc}</div>` : `<div class="badge stop">${ICON.minus}</div>`) : '';
+  const stake = t.sz!=null ? `<div class="r-p">sur ${money(t.sz)}</div>` : '';
+  let sub, why = '', right;
+  if (open){
+    sub = `${modeChip(t)} · depuis ${hm(t.o)} (<span data-since="${t.o||''}">${dur(nowS()-(t.o||nowS()))}</span>)`;
+    if (t.pt?.length) why = `<div class="r-why">${t.pt.length} vente(s) partielle(s)${t.rp!=null?' · réalisé <b>'+money(t.rp,true)+'</b>':''}</div>`;
+    right = t.upnl!=null ? `<div class="r-a ${sign(t.upnl)}">${money(t.upnl,true)}</div><div class="r-p">${pct(t.upct)} latent</div>${stake}` : `<div class="r-a">—</div><div class="r-p">latent n/d</div>${stake}`;
+  } else {
+    sub = `${modeChip(t)} · ${hm(t.o)}${t.c?' → '+hm(t.c):''}${t.h!=null?' ('+dur(t.h)+')':''}`;
+    const parts = t.pt?.length ? ` · dont ${t.pt.length} vente(s) partielle(s)` : '';
+    why = t.st==='closed' ? `<div class="r-why">${t.r?'<b>'+esc(reasonFr(t.r))+'</b>':'Sortie'}${parts}</div>` : `<div class="r-why">Statut inconnu (bot redémarré pendant la position ?)</div>`;
+    right = t.st==='closed' ? `<div class="r-a ${sign(t.pnl??t.pct)}">${t.pnl!=null?money(t.pnl,true):pct(t.pct)}</div><div class="r-p">${t.pnl!=null?pct(t.pct):''}</div>${stake}` : `<div class="r-a">—</div>${stake}`;
+  }
+  return `<div class="row trow ${open?'open':'closed'}${isNew?' new':''}" data-mint="${esc(t.m)}"><div class="r-ic">${av(t.s,img)}${badge}</div><div class="r-mid"><div class="r-t">${esc(t.s||(t.m||'?').slice(0,6))}${stBadge(t)}</div><div class="r-s">${sub}</div>${why}</div><div class="r-right">${right}</div></div>`;
+}
+let AF = 'all', seenTrades = null;
 function renderActivity(){
-  const acts = S.activity||[];
+  const acts = S.activity||[], T = getTrades();
   const first = seenActs===null; const prev = seenActs||new Set();
-  const html = (list, el) => { el.innerHTML = list.length ? list.map(a=>actRow(a, !first && !prev.has(a.id))).join('') : `<div class="empty"><b>Aucune activité</b>${S.files.length? 'Le bot n’a encore ouvert aucune position.' : 'En attente des fichiers de trades dans '+esc(S.data_dir)+'…'}</div>`; };
-  html(acts.slice(0,8), $('#activity')); html(acts, $('#activity-full'));
-  // notification on new sells
-  if (!first){ const ns = acts.filter(a=>a.kind!=='buy' && !prev.has(a.id)); if (ns.length) notify(ns[0]); 
+  const key = t => t.id+':'+t.st;
+  const pt = seenTrades||new Set();
+  const empty = `<div class="empty"><b>Aucune activité</b>${S.files.length||S.files_n? 'Le bot n’a encore ouvert aucune position.' : 'En attente des données du bot…'}</div>`;
+  const html = (list, el) => setHTML(el, list.length ? list.map(t=>tradeRow(t, seenTrades!==null && !pt.has(key(t)))).join('') : empty);
+  html(T.slice(0,8), $('#activity'));
+  const F = AF==='open' ? T.filter(t=>t.st==='open') : AF==='closed' ? T.filter(t=>t.st!=='open') : T;
+  html(F, $('#activity-full'));
+  const cl = T.filter(t=>t.st==='closed'), no = T.filter(t=>t.st==='open').length, rp = cl.reduce((a,t)=>a+(t.pnl||0),0);
+  $('#act-summary').innerHTML = T.length ? `${no} en cours · ${cl.length} fermée(s)${cl.length?` · P&L réalisé <span style="color:${rp>=0?'var(--green)':'var(--red)'}">${money(rp,true)}</span>`:''}` : '';
+  seenTrades = new Set(T.map(key));
+  // notification on new sells / buys
+  if (!first){ const ns = acts.filter(a=>a.kind!=='buy' && !prev.has(a.id)); if (ns.length) notify(ns[0]);
     const nb = acts.find(a=>a.kind==='buy' && !prev.has(a.id)); if (!ns.length && nb) notify(nb); }
   seenActs = new Set(acts.map(a=>a.id));
 }
+$('#act-filter').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b) return; AF=b.dataset.f; $$('#act-filter button').forEach(x=>x.classList.toggle('on',x===b)); if (S) renderActivity(); });
+setInterval(()=>{ const n=nowS(); $$('[data-since]').forEach(el=>{ const t=+el.dataset.since; if (t) el.textContent = dur(n-t); }); }, 1000);
 let nT=null;
 function notify(a){
-  const t = a.kind==='buy' ? `Acheté ${a.symbol} • ${a.usd!=null?money(a.usd):sol(a.sol)}` : `${a.kind==='stop'?'Stoppé':'Vendu'} ${a.symbol} • ${a.pnl!=null?money(a.pnl,true):''} (${pct(a.pct)})`;
+  const t = a.kind==='buy' ? `Position ouverte ${a.symbol} • ${a.usd!=null?money(a.usd):sol(a.sol)}` : `Fermée ${a.symbol} • ${a.pnl!=null?money(a.pnl,true):''} (${pct(a.pct)})${a.reason?' · '+reasonFr(a.reason):''}`;
   $('#notif-text').textContent = t; const n=$('#notif'); n.classList.add('show'); clearTimeout(nT); nT=setTimeout(()=>n.classList.remove('show'),4200);
   if (a.kind!=='buy' && (a.pnl??a.pct??0)>0) confetti(60);
 }
@@ -144,9 +209,18 @@ function confetti(n=90){ const c=$('#confetti'); for(let i=0;i<n;i++){ const d=d
 
 /* ---------- positions / account ---------- */
 function renderPositions(){
-  const P = S.positions||[]; $('#positions-sec').classList.toggle('hidden', !P.length);
-  $('#pos-count').textContent = P.length ? P.length+' ouverte'+(P.length>1?'s':'') : '';
-  setHTML($('#positions'), P.map(p=>`<div class="row" data-mint="${esc(p.mint)}"><div class="r-ic">${av(p.symbol, S.tokens?.[p.mint]?.image)}</div><div class="r-mid"><div class="r-t">${esc(p.symbol||p.mint)}</div><div class="r-s">Entrée ${hm(p.entry_ts)} · il y a ${ago(p.entry_ts)}</div></div><div class="r-right"><div class="r-a">${p.value!=null?money(p.value):p.usd!=null?money(p.usd):sol(p.sol)}</div><div class="r-p" style="color:${(p.pct??0)>=0?'var(--green)':'var(--red)'}">${pct(p.pct)}</div></div></div>`).join(''));
+  const P = getTrades().filter(t=>t.st==='open');
+  const c = $('#pos-count'); c.textContent = P.length; c.classList.toggle('on', P.length>0);
+  const up = P.reduce((a,t)=>a+(t.upnl||0),0), known = P.some(t=>t.upnl!=null);
+  $('#pos-note').innerHTML = P.length && known ? `latent <span style="color:${up>=0?'var(--green)':'var(--red)'}">${money(up,true)}</span>` : '';
+  const k = (a,b)=>`<div><div class="k">${a}</div><div class="v">${b}</div></div>`;
+  setHTML($('#positions'), P.length ? P.map(t=>`<div class="pos-card" data-mint="${esc(t.m)}">
+    <div class="pc-top"><div class="r-ic">${av(t.s, S.tokens?.[t.m]?.image)}<div class="badge buy">${ICON.up}</div></div>
+      <div class="r-mid"><div class="r-t">${esc(t.s||(t.m||'?').slice(0,6))}${stBadge(t)}</div><div class="r-s">${modeChip(t)} · entrée ${hm(t.o)}</div></div>
+      <div class="r-right">${t.upnl!=null?`<div class="r-a ${sign(t.upnl)}">${money(t.upnl,true)}</div><div class="r-p" style="color:${(t.upct??0)>=0?'var(--green)':'var(--red)'}">${pct(t.upct)}</div>`:`<div class="r-a">—</div><div class="r-p">P&L latent n/d</div>`}</div></div>
+    <div class="pc-grid">${k('Mise', t.sz!=null?money(t.sz):'—')}${k('Valeur actuelle', t.v!=null?money(t.v):'—')}${k('Durée', `<span data-since="${t.o||''}">${dur(nowS()-(t.o||nowS()))}</span>`)}</div>
+    ${t.pt?.length?`<div class="r-why" style="margin-top:8px">${t.pt.length} vente(s) partielle(s)${t.rp!=null?' · réalisé <b>'+money(t.rp,true)+'</b>':''}</div>`:''}</div>`).join('')
+    : `<div class="empty" style="padding:14px"><b style="margin:0">Aucune position ouverte</b></div>`);
 }
 function renderAccount(){
   const c = S.config||{};
@@ -211,11 +285,11 @@ async function loadToken(mint, first){
   const g = (k,v)=>`<div><div class="k">${k}</div><div class="v">${v}</div></div>`;
   $('#token').innerHTML = `<div class="tk-h">${av(sym, md.image)}<div><div class="tk-name">${esc(md.name||sym)}</div><div class="tk-meta">${esc(sym)} • Solana${md.created? ' • '+ago(md.created): md.first_ts?' • vu il y a '+ago(md.first_ts):''}</div></div></div>
    <div class="tk-price">${px(ref)} <span style="font-size:20px;color:var(--sub)">${T.ccy==='EUR'?'€':''}</span></div><div class="tk-chg" style="color:${(chg??0)>=0?'var(--green)':'var(--red)'}">${chg!=null?(chg>=0?'▲ ':'▼ ')+pct(chg)+' depuis l’entrée':'<span style="color:var(--sub)">—</span>'}</div>
-   ${T.closed? (closedUp? `<div class="success"><div style="font-size:30px">🎉</div><div><div class="big">${T.closed.pnl!=null?money(T.closed.pnl,true):pct(T.closed.pct)}</div><div class="c-s" style="color:var(--sub)">Position clôturée en profit · ${esc(T.closed.reason||'')} · ${pct(T.closed.pct)}</div></div></div>` : `<div class="fail"><b style="color:var(--red)">${T.closed.pnl!=null?money(T.closed.pnl,true):pct(T.closed.pct)}</b> <span style="color:var(--sub);font-size:13px">· clôturée${T.closed.reason?' · '+esc(T.closed.reason):''}</span></div>`) : ''}
+   ${T.closed? (closedUp? `<div class="success"><div style="font-size:30px">🎉</div><div><div class="big">${T.closed.pnl!=null?money(T.closed.pnl,true):pct(T.closed.pct)}</div><div class="c-s" style="color:var(--sub)">Position fermée en profit · ${esc(reasonFr(T.closed.reason))} · ${pct(T.closed.pct)}</div></div></div>` : `<div class="fail"><b style="color:var(--red)">${T.closed.pnl!=null?money(T.closed.pnl,true):pct(T.closed.pct)}</b> <span style="color:var(--sub);font-size:13px">· fermée${T.closed.reason?' · '+esc(reasonFr(T.closed.reason)):''}</span></div>`) : ''}
    <div class="candles">${candleSVG(ticks, entry, stopPrice, stopLabel)}</div>
    <div class="grid4">${g('Market cap'+(md.mcap_note?' <small style="color:#555">(calc.)</small>':''), cmoney(md.mcap))}${g('Liquidité', cmoney(md.liquidity))}${g('Holders', md.holders!=null?compact(md.holders):'—')}${g('Volume 24h', md.volume!=null?compact(md.volume):'—')}</div>
    ${T.position? `<div class="card"><div class="a-ic purple">${ICON.bot}</div><div class="c-mid"><div class="c-t">Ta position</div><div class="c-s">${T.position.usd!=null?money(T.position.usd):sol(T.position.sol)} · Executor</div></div><div class="c-r"><b>${T.position.value!=null?money(T.position.value):'—'}</b><span style="color:${(T.position.upnl??0)>=0?'var(--green)':'var(--red)'};font-size:13px">${T.position.upnl!=null?money(T.position.upnl,true):''}</span></div></div>`
-     : T.closed? `<div class="card"><div class="a-ic purple">${ICON.bot}</div><div class="c-mid"><div class="c-t">Ta position (clôturée)</div><div class="c-s">${T.closed.cost!=null?money(T.closed.cost):''} · Executor → Risk</div></div><div class="c-r"><b style="color:${closedUp?'var(--green)':'var(--red)'}">${T.closed.pnl!=null?money(T.closed.pnl,true):'—'}</b></div></div>` : ''}
+     : T.closed? `<div class="card"><div class="a-ic purple">${ICON.bot}</div><div class="c-mid"><div class="c-t">Ta position (fermée)</div><div class="c-s">${T.closed.cost!=null?money(T.closed.cost):''} · Executor → Risk</div></div><div class="c-r"><b style="color:${closedUp?'var(--green)':'var(--red)'}">${T.closed.pnl!=null?money(T.closed.pnl,true):'—'}</b></div></div>` : ''}
    <div class="card"><div class="a-ic orange">${ICON.shield}</div><div class="c-mid"><div class="c-t">Risk · ${stopLabel==='Risk stop loss'?'stop loss':'trailing stop'}</div><div class="c-s">${trail!=null?`sortie si −${trail} % depuis le sommet${T.trail_act!=null?` (actif après +${T.trail_act} %)`:''}`:''}${stopP!=null?` · stop dur −${stopP} %`:''}</div></div><div class="c-r"><b style="color:var(--orange);font-size:14px">${px(stopPrice)}</b></div></div>
    ${!ticks.length?'<div class="empty">Aucun tick de prix enregistré pour ce token.</div>':''}`;
   if (first && closedUp && !tokConfettiDone[mint]){ tokConfettiDone[mint]=1; confetti(110); }
@@ -266,12 +340,16 @@ function tokenFromRelay(mint){
 const LS_CODE='brio.code', LS_LAST='brio.last';
 const R = {live:null, hist:null, via:null, rxAt:0, conn:'init', key:null};
 function mergeById(a,b){ const m=new Map(); for (const x of [...(b||[]),...(a||[])]) if (x && !m.has(x.id)) m.set(x.id,x); return [...m.values()].sort((x,y)=>(y.ts||0)-(x.ts||0)); }
+function mergeTrades(L, H){ if (!Array.isArray(L) && !Array.isArray(H)) return null;
+  const m = new Map(); for (const t of (L||[])) m.set(t.id, t);
+  for (const t of (H||[])) if (!m.has(t.id) && (t.st!=='open' || !Array.isArray(L))) m.set(t.id, t);
+  return [...m.values()]; }
 function compose(){
   const L = R.live; if (!L) return;
   const pts = new Map(); for (const [ts,v] of [...(R.hist?.series||[]), ...(L.series||[])]) pts.set(ts, v);
   const series = [...pts.entries()].sort((a,b)=>a[0]-b[0]).map(([ts,v])=>({ts,v}));
   const mk = new Map(); for (const m of [...(R.hist?.markers||[]), ...(L.markers||[])]) mk.set(m.id||m.ts, m);
-  S = {...L, series, markers:[...mk.values()].sort((a,b)=>a.ts-b.ts), activity: mergeById(L.activity, R.hist?.activity),
+  S = {...L, series, markers:[...mk.values()].sort((a,b)=>a.ts-b.ts), activity: mergeById(L.activity, R.hist?.activity), trades: mergeTrades(L.trades, R.hist?.trades),
        files: R.hist?.files||[], tokens:{}, config:{}, data_dir:'', data_dir_exists:true};
   render(); tickStatus();
 }

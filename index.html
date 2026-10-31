@@ -52,8 +52,8 @@
     <div class="agents" id="agents"></div>
     <div class="dots" id="agent-dots"><i class="on"></i><i></i><i></i><i></i></div>
 
-    <div id="positions-sec" class="hidden">
-      <div class="sec-h"><h2>Positions ouvertes</h2><span id="pos-count" class="sec-note"></span></div>
+    <div id="positions-sec">
+      <div class="sec-h"><h2>Positions ouvertes <span id="pos-count" class="count-pill">0</span></h2><span id="pos-note" class="sec-note"></span></div>
       <div class="list" id="positions"></div>
     </div>
 
@@ -73,6 +73,8 @@
   <!-- ACTIVITY -->
   <section id="view-activity" class="view">
     <header class="top"><div class="who"><h1>Activité</h1><span class="sim">SIMULATION</span></div></header>
+    <div class="seg" id="act-filter"><button data-f="all" class="on">Tout</button><button data-f="open">En cours</button><button data-f="closed">Fermées</button></div>
+    <div id="act-summary" class="act-sum"></div>
     <div class="list" id="activity-full"></div>
   </section>
 
