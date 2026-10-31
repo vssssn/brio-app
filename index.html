@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<title>Brio · Paper trading</title>
+<meta name="apple-mobile-web-app-title" content="Brio">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="stylesheet" href="style.css">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://ntfy.sh wss://public.cloud.shiftr.io; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
+</head>
+<body>
+<div id="lock" class="lock hidden"><form id="lock-form" class="lock-w" autocomplete="off"><div class="lock-av">B</div><span class="sim">SIMULATION</span>
+  <h1>Brio</h1><p>Entre ton code d’accès pour déchiffrer les données du bot (lecture seule). Il reste sur cet iPhone.</p>
+  <input id="lock-code" type="password" autocomplete="current-password" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="••••••" required>
+  <button id="lock-btn" type="submit">Déverrouiller</button><div id="lock-err" class="lock-err"></div></form></div>
+<div id="phone">
+  <div id="notif" class="notif"><div class="n-av">B</div><div class="n-body"><div class="n-title">Brio</div><div class="n-text" id="notif-text"></div></div><div class="n-now">maintenant</div></div>
+  <div id="confetti"></div>
+
+  <!-- HOME -->
+  <section id="view-home" class="view active">
+    <header class="top">
+      <div class="who"><div class="avatar">B</div><span class="botname">Brio</span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg><span class="sim">SIMULATION</span></div>
+      <div class="icons">
+        <svg viewBox="0 0 24 24" class="ic"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+        <svg viewBox="0 0 24 24" class="ic"><path d="M6 16V11a6 6 0 1112 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 004 0"/></svg>
+      </div>
+    </header>
+
+    <div id="relay" class="relay wait"><i></i>Connexion au relais…</div>
+    <div class="balance-wrap">
+      <div id="balance" class="balance"><span class="muted-big">—</span></div>
+      <div class="pnl-row"><span id="pnl" class="pnl"></span><span id="mult" class="mult hidden"><svg viewBox="0 0 24 24"><path d="M12 2l2.2 6.3L20 10l-5.8 1.7L12 18l-2.2-6.3L4 10l5.8-1.7z"/></svg><b></b></span></div>
+      <div id="bal-sub" class="bal-sub"></div>
+    </div>
+
+    <div class="chart-wrap"><svg id="chart" viewBox="0 0 430 190" preserveAspectRatio="none"></svg><div id="chart-tags"></div><div id="chart-empty" class="chart-empty"></div></div>
+    <div class="tf" id="tf">
+      <button data-tf="live" class="on"><i></i>LIVE</button><button data-tf="1h">1H</button><button data-tf="4h">4H</button><button data-tf="1d">1D</button><button data-tf="1w">1W</button><button data-tf="all">ALL</button>
+    </div>
+
+    <div class="sec-h"><h2>Agents</h2><span id="running" class="green-link">0 running</span></div>
+    <div class="agents" id="agents"></div>
+    <div class="dots" id="agent-dots"><i class="on"></i><i></i><i></i><i></i></div>
+
+    <div id="positions-sec" class="hidden">
+      <div class="sec-h"><h2>Positions ouvertes</h2><span id="pos-count" class="sec-note"></span></div>
+      <div class="list" id="positions"></div>
+    </div>
+
+    <div class="sec-h"><h2>Activité</h2><a class="green-link" data-go="activity">Voir tout</a></div>
+    <div class="list" id="activity"></div>
+    <div class="foot" id="foot"></div>
+  </section>
+
+  <!-- AGENTS -->
+  <section id="view-agents" class="view">
+    <header class="top"><div class="who"><h1>Agents</h1><span class="sim">SIMULATION</span></div><span id="running2" class="green-link"></span></header>
+    <div class="agents vertical" id="agents-full"></div>
+    <div class="sec-h"><h2>Décisions récentes</h2><span id="dec-note" class="sec-note"></span></div>
+    <div class="list" id="decisions"></div>
+  </section>
+
+  <!-- ACTIVITY -->
+  <section id="view-activity" class="view">
+    <header class="top"><div class="who"><h1>Activité</h1><span class="sim">SIMULATION</span></div></header>
+    <div class="list" id="activity-full"></div>
+  </section>
+
+  <!-- ACCOUNT -->
+  <section id="view-account" class="view">
+    <header class="top"><div class="who"><h1>Compte</h1><span class="sim">SIMULATION</span></div></header>
+    <div id="account"></div>
+  </section>
+
+  <!-- TOKEN DETAIL -->
+  <section id="view-token" class="view">
+    <header class="top"><a class="back" id="back"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>Home</a><span class="sim">SIMULATION</span></header>
+    <div id="token"></div>
+  </section>
+
+  <nav class="tabbar">
+    <a data-go="home" class="on"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9h-5v-6h-6v6H4z" class="fill"/></svg>Home</a>
+    <a data-go="agents"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="16" cy="9" r="2.5"/><path d="M3 19c0-3 3-5 6-5s6 2 6 5M14 14.5c3 0 6 1.5 6 4.5"/></svg>Agents</a>
+    <a data-go="activity"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>Activité</a>
+    <a data-go="account"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Compte</a>
+  </nav>
+</div>
+<script src="config.js"></script>
+<script src="relay.js"></script>
+<script src="app.js"></script>
+<script src="sw-register.js"></script>
+</body>
+</html>
