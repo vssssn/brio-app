@@ -1,6 +1,6 @@
 // Brio service worker: caches ONLY the static app shell (same origin, relative to the Pages scope).
 // Relay traffic (ntfy.sh HTTPS polls, MQTT WebSocket) is cross-origin and is never intercepted or cached.
-const CACHE = 'brio-pages-v1';
+const CACHE = 'brio-pages-v2-positions';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'relay.js', 'config.js', 'sw-register.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/favicon-32.png'];
 const SHELL_URLS = SHELL.map(p => new URL(p, self.registration.scope).href);
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).catch(()=>{})); self.skipWaiting(); });
